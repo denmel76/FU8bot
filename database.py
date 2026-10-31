@@ -40,3 +40,12 @@ async def cancel_appointment(appointment_id, user_id):
             (appointment_id, user_id)
         )
         await db.commit()
+
+# НОВАЯ ФУНКЦИЯ ДЛЯ АДМИНА
+async def get_all_active_appointments():
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute(
+            "SELECT id, name, service, master, appointment_time, user_id FROM appointments WHERE status = 'new' ORDER BY id DESC"
+        )
+        return await cursor.fetchall()
+
