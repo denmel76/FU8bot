@@ -78,7 +78,8 @@ async def cancel_app(callback: CallbackQuery):
 # --- СВЯЗАТЬСЯ С МАСТЕРОМ ---
 @dp.callback_query(F.data == "contact")
 async def contact_master(callback: CallbackQuery):
-    await callback.message.answer("Если у вас есть вопросы, напишите нашему мастеру: @Ваш_Юзернейм (замените в коде)")
+    # Здесь ваш юзернейм
+    await callback.message.answer("Если у вас есть вопросы, напишите нашему мастеру: @koolkrossovki4U")
     await callback.answer()
 
 # --- ПРОЦЕСС ЗАПИСИ ---
