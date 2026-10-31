@@ -8,13 +8,12 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from config import TOKEN, ADMIN_ID, SERVICES, MASTERS, TEXTS
-from database import init_db, save_appointment, get_user_appointments, cancel_appointment
+from database import init_db, save_appointment, get_user_appointments, cancel_appointment, get_all_active_appointments
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# Добавили новое состояние для выбора мастера
 class BookingState(StatesGroup):
     waiting_for_service = State()
     waiting_for_master = State()
@@ -31,6 +30,27 @@ async def cmd_start(message: types.Message, state: FSMContext):
         [InlineKeyboardButton(text="📞 Связаться с мастером", callback_data="contact")]
     ])
     await message.answer(TEXTS["start"], reply_markup=keyboard)
+
+# --- АДМИН-ПАНЕЛЬ ---
+@dp.message(Command("admin"))
+async def cmd_admin(message: types.Message):
+    # Проверяем, что команду ввел админ
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("⛔ У вас нет доступа к этой команде.")
+        return
+    
+    appointments = await get_all_active_appointments()
+    
+    if not appointments:
+        await message.answer("📭 На данный момент нет активных записей.")
+        return
+    
+    text = "👑 **АДМИН-ПАНЕЛЬ**\n\n📋 **Все активные записи:**\n\n"
+    for app in appointments:
+        app_id, name, service, master, time, user_id = app
+        text += f"👤 {name} (ID: `{user_id}`)\n✂️ {service}\n💈 {master}\n⏰ {time}\n\n"
+    
+    await message.answer(text, parse_mode="Markdown")
 
 # --- КНОПКА НАЗАД ---
 @dp.callback_query(F.data == "back_to_menu")
@@ -93,14 +113,12 @@ async def start_booking(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(TEXTS["choose_service"], reply_markup=keyboard)
     await state.set_state(BookingState.waiting_for_service)
 
-# 1. Выбор услуги
 @dp.callback_query(BookingState.waiting_for_service, F.data.startswith("srv_"))
 async def process_service(callback: CallbackQuery, state: FSMContext):
     service_key = callback.data.split("_")[1]
     service_name = SERVICES.get(service_key)
     await state.update_data(service=service_name)
     
-    # Показываем список мастеров
     buttons = []
     for key, value in MASTERS.items():
         buttons.append([InlineKeyboardButton(text=value, callback_data=f"mst_{key}")])
@@ -109,7 +127,6 @@ async def process_service(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(TEXTS["choose_master"], reply_markup=keyboard)
     await state.set_state(BookingState.waiting_for_master)
 
-# 2. Выбор мастера (НОВЫЙ ШАГ)
 @dp.callback_query(BookingState.waiting_for_master, F.data.startswith("mst_"))
 async def process_master(callback: CallbackQuery, state: FSMContext):
     master_key = callback.data.split("_")[1]
@@ -119,14 +136,12 @@ async def process_master(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(TEXTS["enter_name"])
     await state.set_state(BookingState.waiting_for_name)
 
-# 3. Ввод имени
 @dp.message(BookingState.waiting_for_name)
 async def process_name(message: types.Message, state: FSMContext):
     await state.update_data(name=message.text)
     await message.answer(TEXTS["enter_time"])
     await state.set_state(BookingState.waiting_for_time)
 
-# 4. Ввод времени и сохранение
 @dp.message(BookingState.waiting_for_time)
 async def process_time(message: types.Message, state: FSMContext):
     user_data = await state.get_data()
@@ -137,7 +152,6 @@ async def process_time(message: types.Message, state: FSMContext):
     
     await save_appointment(message.from_user.id, name, service, master, time)
     
-    # Уведомление админу
     admin_text = f"🔥 **Новая запись!**\n\n👤 Имя: {name}\n✂️ Услуга: {service}\n💈 Мастер: {master}\n⏰ Время: {time}\n🆔 Клиент ID: {message.from_user.id}"
     if ADMIN_ID != 0:
         try:
@@ -150,7 +164,7 @@ async def process_time(message: types.Message, state: FSMContext):
 
 async def main():
     await init_db()
-    print("Barber Bot (v3) с мастерами запущен...")
+    print("Barber Bot (v4) с админ-панелью запущен...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
