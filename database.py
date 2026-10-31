@@ -10,24 +10,25 @@ async def init_db():
                 user_id INTEGER,
                 name TEXT,
                 service TEXT,
+                master TEXT, 
                 appointment_time TEXT,
                 status TEXT DEFAULT 'new'
             )
         """)
         await db.commit()
 
-async def save_appointment(user_id, name, service, appointment_time):
+async def save_appointment(user_id, name, service, master, appointment_time):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute(
-            "INSERT INTO appointments (user_id, name, service, appointment_time) VALUES (?, ?, ?, ?)",
-            (user_id, name, service, appointment_time)
+            "INSERT INTO appointments (user_id, name, service, master, appointment_time) VALUES (?, ?, ?, ?, ?)",
+            (user_id, name, service, master, appointment_time)
         )
         await db.commit()
 
 async def get_user_appointments(user_id):
     async with aiosqlite.connect(DB_NAME) as db:
         cursor = await db.execute(
-            "SELECT id, service, appointment_time FROM appointments WHERE user_id = ? AND status = 'new' ORDER BY id DESC",
+            "SELECT id, service, master, appointment_time FROM appointments WHERE user_id = ? AND status = 'new' ORDER BY id DESC",
             (user_id,)
         )
         return await cursor.fetchall()
