@@ -7,15 +7,17 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from config import TOKEN, ADMIN_ID, SERVICES, TEXTS
+from config import TOKEN, ADMIN_ID, SERVICES, MASTERS, TEXTS
 from database import init_db, save_appointment, get_user_appointments, cancel_appointment
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
+# Добавили новое состояние для выбора мастера
 class BookingState(StatesGroup):
     waiting_for_service = State()
+    waiting_for_master = State()
     waiting_for_name = State()
     waiting_for_time = State()
 
@@ -41,7 +43,7 @@ async def back_to_menu(callback: CallbackQuery):
     await callback.message.edit_text(TEXTS["start"], reply_markup=keyboard)
     await callback.answer()
 
-# --- МОИ ЗАПИСИ И ОТМЕНА ---
+# --- МОИ ЗАПИСИ ---
 @dp.callback_query(F.data == "my_appointments")
 async def show_my_appointments(callback: CallbackQuery):
     appointments = await get_user_appointments(callback.from_user.id)
@@ -55,8 +57,8 @@ async def show_my_appointments(callback: CallbackQuery):
         text = "📋 **Ваши записи:**\n\n"
         buttons = []
         for app in appointments:
-            app_id, service, time = app
-            text += f"• {service} — {time}\n"
+            app_id, service, master, time = app
+            text += f"• {service} (Мастер: {master}) — {time}\n"
             buttons.append([InlineKeyboardButton(text=f"❌ Отменить {time}", callback_data=f"cancel_{app_id}")])
         
         buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_menu")])
@@ -75,10 +77,8 @@ async def cancel_app(callback: CallbackQuery):
     )
     await callback.answer("Запись отменена")
 
-# --- СВЯЗАТЬСЯ С МАСТЕРОМ ---
 @dp.callback_query(F.data == "contact")
 async def contact_master(callback: CallbackQuery):
-    # Здесь ваш юзернейм
     await callback.message.answer("Если у вас есть вопросы, напишите нашему мастеру: @koolkrossovki4U")
     await callback.answer()
 
@@ -93,43 +93,64 @@ async def start_booking(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(TEXTS["choose_service"], reply_markup=keyboard)
     await state.set_state(BookingState.waiting_for_service)
 
+# 1. Выбор услуги
 @dp.callback_query(BookingState.waiting_for_service, F.data.startswith("srv_"))
 async def process_service(callback: CallbackQuery, state: FSMContext):
     service_key = callback.data.split("_")[1]
     service_name = SERVICES.get(service_key)
-    
     await state.update_data(service=service_name)
+    
+    # Показываем список мастеров
+    buttons = []
+    for key, value in MASTERS.items():
+        buttons.append([InlineKeyboardButton(text=value, callback_data=f"mst_{key}")])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await callback.message.edit_text(TEXTS["choose_master"], reply_markup=keyboard)
+    await state.set_state(BookingState.waiting_for_master)
+
+# 2. Выбор мастера (НОВЫЙ ШАГ)
+@dp.callback_query(BookingState.waiting_for_master, F.data.startswith("mst_"))
+async def process_master(callback: CallbackQuery, state: FSMContext):
+    master_key = callback.data.split("_")[1]
+    master_name = MASTERS.get(master_key)
+    
+    await state.update_data(master=master_name)
     await callback.message.edit_text(TEXTS["enter_name"])
     await state.set_state(BookingState.waiting_for_name)
 
+# 3. Ввод имени
 @dp.message(BookingState.waiting_for_name)
 async def process_name(message: types.Message, state: FSMContext):
     await state.update_data(name=message.text)
     await message.answer(TEXTS["enter_time"])
     await state.set_state(BookingState.waiting_for_time)
 
+# 4. Ввод времени и сохранение
 @dp.message(BookingState.waiting_for_time)
 async def process_time(message: types.Message, state: FSMContext):
     user_data = await state.get_data()
     name = user_data['name']
     service = user_data['service']
+    master = user_data['master']
     time = message.text
     
-    await save_appointment(message.from_user.id, name, service, time)
+    await save_appointment(message.from_user.id, name, service, master, time)
     
-    admin_text = f"🔥 **Новая запись!**\n\n👤 Имя: {name}\n✂️ Услуга: {service}\n⏰ Время: {time}\n🆔 Клиент ID: {message.from_user.id}"
+    # Уведомление админу
+    admin_text = f"🔥 **Новая запись!**\n\n👤 Имя: {name}\n✂️ Услуга: {service}\n💈 Мастер: {master}\n⏰ Время: {time}\n🆔 Клиент ID: {message.from_user.id}"
     if ADMIN_ID != 0:
         try:
             await bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown")
         except Exception as e:
             logging.error(f"Ошибка отправки админу: {e}")
     
-    await message.answer(TEXTS["success"].format(name=name, service=service, time=time))
+    await message.answer(TEXTS["success"].format(name=name, service=service, master=master, time=time))
     await state.clear()
 
 async def main():
     await init_db()
-    print("Barber Bot (v2) запущен...")
+    print("Barber Bot (v3) с мастерами запущен...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
